@@ -26,6 +26,12 @@ const EvaluationResponseSchema = z.object({
   followUpQuestions: z.array(z.string()).min(1).max(3),
 });
 
+// Daily circuit breaker counter
+let dailyEvaluationCounter = {
+  date: new Date().toDateString(),
+  count: 0,
+};
+
 export class LlmEvaluator implements Evaluator {
   readonly name = 'LlmEvaluator';
   private fallbackEvaluator = new RuleBasedEvaluator();
@@ -40,16 +46,36 @@ export class LlmEvaluator implements Evaluator {
       return this.fallbackEvaluator.evaluate(context);
     }
 
+    // Daily Circuit Breaker Check
+    const maxDaily = process.env.MAX_DAILY_EVALUATIONS ? parseInt(process.env.MAX_DAILY_EVALUATIONS, 10) : 100;
+    const todayStr = new Date().toDateString();
+
+    if (dailyEvaluationCounter.date !== todayStr) {
+      dailyEvaluationCounter = { date: todayStr, count: 0 };
+    }
+
+    if (dailyEvaluationCounter.count >= maxDaily) {
+      console.warn(
+        `[LlmEvaluator] Daily evaluation safety cap of ${maxDaily} reached for today (${todayStr}). Switching to RuleBasedEvaluator to prevent excess billing.`
+      );
+      return this.fallbackEvaluator.evaluate(context);
+    }
+
     try {
       const prompt = this.buildPrompt(context);
+      let result: EvaluationResult;
 
       if (openrouterKey) {
-        return await this.evaluateWithOpenRouter(openrouterKey, prompt);
+        result = await this.evaluateWithOpenRouter(openrouterKey, prompt);
       } else if (geminiKey) {
-        return await this.evaluateWithGemini(geminiKey, prompt);
-      } else if (openaiKey) {
-        return await this.evaluateWithOpenAI(openaiKey, prompt);
+        result = await this.evaluateWithGemini(geminiKey, prompt);
+      } else {
+        result = await this.evaluateWithOpenAI(openaiKey!, prompt);
       }
+
+      // Increment daily counter on successful LLM evaluation
+      dailyEvaluationCounter.count++;
+      return result;
     } catch (err) {
       console.error('[LlmEvaluator] LLM API call or validation failed. Falling back to RuleBasedEvaluator:', err);
     }
@@ -145,9 +171,7 @@ Return ONLY a valid JSON object matching this EXACT schema. Do NOT include markd
       throw new Error('Empty response content from OpenRouter API');
     }
 
-    // Clean up potential markdown blocks if present
     rawText = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
     const parsed = JSON.parse(rawText);
     const validated = EvaluationResponseSchema.parse(parsed);
 

@@ -39,28 +39,41 @@ export class TextSubmission implements Submission {
   validate(): SubmissionValidationResult {
     const errors: string[] = [];
 
+    // Minimum Length Checks
     if (!this.assumptions) {
       errors.push('Assumptions are required.');
     } else if (this.assumptions.length < 10) {
       errors.push('Assumptions section must be at least 10 characters long.');
+    } else if (this.assumptions.length > 2000) {
+      errors.push('Assumptions section exceeds maximum limit of 2,000 characters.');
     }
 
     if (!this.classes) {
       errors.push('Classes and interfaces section is required.');
     } else if (this.classes.length < 10) {
       errors.push('Classes/interfaces section must contain meaningful detail (at least 10 characters).');
+    } else if (this.classes.length > 3000) {
+      errors.push('Classes/interfaces section exceeds maximum limit of 3,000 characters.');
     }
 
     if (!this.responsibilities) {
       errors.push('Responsibilities and relationships section is required.');
     } else if (this.responsibilities.length < 15) {
-      errors.push('Responsibilities section must contain meaningful detail (at least 15 characters).');
+      errors.push('Responsibilities section must be at least 15 characters long.');
+    } else if (this.responsibilities.length > 4000) {
+      errors.push('Responsibilities section exceeds maximum limit of 4,000 characters.');
     }
 
     if (!this.explanation) {
       errors.push('Design explanation section is required.');
     } else if (this.explanation.length < 15) {
       errors.push('Design explanation section must be at least 15 characters long.');
+    } else if (this.explanation.length > 5000) {
+      errors.push('Design explanation section exceeds maximum limit of 5,000 characters.');
+    }
+
+    if (this.additionalNotes && this.additionalNotes.length > 2000) {
+      errors.push('Additional notes section exceeds maximum limit of 2,000 characters.');
     }
 
     return {
