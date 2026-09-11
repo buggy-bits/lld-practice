@@ -1,0 +1,91 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Problem {
+  id           String    @id @default(uuid())
+  slug         String    @unique
+  title        String
+  description  String
+  difficulty   String    // Easy, Medium, Hard
+  requirements String    // JSON array of strings
+  constraints  String?   // JSON array of strings
+  rubric       String    // JSON string rubric description
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  attempts     Attempt[]
+}
+
+model Attempt {
+  id           String      @id @default(uuid())
+  problemId    String
+  problem      Problem     @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  status       String      // DRAFT, SUBMITTED, EVALUATING, COMPLETED, FAILED
+  attemptNumber Int       @default(1)
+  createdAt    DateTime    @default(now())
+  submittedAt  DateTime?
+  submission   Submission?
+  evaluation   Evaluation?
+}
+
+model Submission {
+  id               String   @id @default(uuid())
+  attemptId        String   @unique
+  attempt          Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type             String   // TEXT (extensible for CODE, DIAGRAM)
+  assumptions      String
+  classes          String
+  responsibilities String
+  explanation      String
+  additionalNotes  String?
+  createdAt        DateTime @default(now())
+}
+
+model Evaluation {
+  id                String            @id @default(uuid())
+  attemptId         String            @unique
+  attempt           Attempt           @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  status            String            // COMPLETED, FAILED
+  overallScore      Float
+  evaluatorType     String            // LLM, MOCK, RULE_BASED
+  createdAt         DateTime          @default(now())
+  completedAt       DateTime?
+  criterionScores   CriterionScore[]
+  feedbackItems     FeedbackItem[]
+  followUpQuestions FollowUpQuestion[]
+}
+
+model CriterionScore {
+  id           String     @id @default(uuid())
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  criterion    String     // e.g. Requirement Understanding, Responsibility Allocation, etc.
+  score        Float
+  evidence     String
+  concern      String?
+  suggestion   String?
+}
+
+model FeedbackItem {
+  id           String     @id @default(uuid())
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  category     String     // Requirement, Responsibility, Abstraction, Coupling, Extensibility, Explanation
+  severity     String     // good, suggestion, concern
+  evidence     String
+  concern      String
+  suggestion   String
+  confidence   String     // HIGH, MEDIUM, LOW
+}
+
+model FollowUpQuestion {
+  id           String     @id @default(uuid())
+  evaluationId String
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  question     String
+}
