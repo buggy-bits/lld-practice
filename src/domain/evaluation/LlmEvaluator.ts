@@ -31,10 +31,11 @@ export class LlmEvaluator implements Evaluator {
   private fallbackEvaluator = new RuleBasedEvaluator();
 
   async evaluate(context: EvaluationContext): Promise<EvaluationResult> {
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
 
-    if (!geminiKey && !openaiKey) {
+    if (!openrouterKey && !geminiKey && !openaiKey) {
       console.log('[LlmEvaluator] No LLM API key detected in environment. Using fallback RuleBasedEvaluator.');
       return this.fallbackEvaluator.evaluate(context);
     }
@@ -42,7 +43,9 @@ export class LlmEvaluator implements Evaluator {
     try {
       const prompt = this.buildPrompt(context);
 
-      if (geminiKey) {
+      if (openrouterKey) {
+        return await this.evaluateWithOpenRouter(openrouterKey, prompt);
+      } else if (geminiKey) {
         return await this.evaluateWithGemini(geminiKey, prompt);
       } else if (openaiKey) {
         return await this.evaluateWithOpenAI(openaiKey, prompt);
@@ -83,7 +86,7 @@ Evaluate the submission on these 6 criteria (score each 0.0 to 10.0):
 6. Explanation and Trade-offs: Did the learner explain and justify their design decisions?
 
 ### JSON Output Format:
-Return ONLY a valid JSON object matching this EXACT schema:
+Return ONLY a valid JSON object matching this EXACT schema. Do NOT include markdown code blocks or extra text:
 {
   "overallScore": 8.2,
   "criterionScores": [
@@ -111,6 +114,47 @@ Return ONLY a valid JSON object matching this EXACT schema:
   ]
 }
 `;
+  }
+
+  private async evaluateWithOpenRouter(apiKey: string, prompt: string): Promise<EvaluationResult> {
+    const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct';
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': 'http://localhost:3000',
+        'X-Title': 'LLD Practice Platform',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenRouter API HTTP Error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    let rawText = data?.choices?.[0]?.message?.content;
+
+    if (!rawText) {
+      throw new Error('Empty response content from OpenRouter API');
+    }
+
+    // Clean up potential markdown blocks if present
+    rawText = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+    const parsed = JSON.parse(rawText);
+    const validated = EvaluationResponseSchema.parse(parsed);
+
+    return {
+      ...validated,
+      evaluatorType: 'LLM',
+    };
   }
 
   private async evaluateWithGemini(apiKey: string, prompt: string): Promise<EvaluationResult> {
