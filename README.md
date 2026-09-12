@@ -1,108 +1,93 @@
 # LLD Practice Platform
 
-A focused, monolithic web application built with **Next.js 14**, **TypeScript**, **Tailwind CSS**, **Prisma**, and **SQLite** that enables software engineers and students to practice Low-Level Object-Oriented Design (LLD) problems and receive structured, explainable feedback on their design decisions.
+LLD Practice is a small web application for practising object-oriented design. A learner chooses a problem, writes a structured design, submits it, and receives feedback about responsibilities, abstractions, coupling, extensibility, and trade-offs.
 
----
+The MVP is deliberately focused. It evaluates design reasoning rather than running learner code or declaring one class diagram to be the only correct answer.
 
-## 🌟 Core Value Proposition
+## What is included
 
-Unlike traditional coding platforms that evaluate code with unit tests or compare diagrams against rigid canonical reference answers, the **LLD Practice Platform** evaluates design reasoning, responsibility allocation, coupling, cohesion, extensibility, and trade-offs.
+The application ships with Parking Lot, Vending Machine, and Elevator Control System problems. The practice workspace collects assumptions, classes and interfaces, responsibilities and relationships, an explanation, and optional notes. Attempts, submissions, evaluations, criterion scores, feedback, and follow-up questions are stored through Prisma.
 
-```
-Choose Problem ➔ Think & Design ➔ Submit ➔ Deterministic Validation ➔ AI Reasoning ➔ Review Structured Feedback ➔ Iterate & Try Again
-```
+The evaluator has two paths. `RuleBasedEvaluator` works without external services. `LlmEvaluator` can use OpenRouter, Gemini, or OpenAI and validates the returned structure before it is stored.
 
----
+## Stack
 
-## 🚀 Features
+- Next.js 14 App Router and TypeScript
+- React and Tailwind CSS
+- Prisma ORM with SQLite for local development
+- Vitest and Testing Library
+- Zod for submission and evaluator-response validation
 
-- **Practice Problem Catalog**: Pre-populated with classic LLD problems: *Parking Lot System*, *Vending Machine*, and *Elevator Control System*.
-- **Structured Design Submission**: Learner provides Assumptions, Classes & Interfaces, Responsibilities & Relationships, Design Explanation, and Additional Notes.
-- **Side-by-Side Workspace**: Problem requirements remain visible in a sticky sidebar while the learner designs.
-- **Deterministic Validation**: Immediate validation for non-empty fields, character lengths, and required inputs before invoking the AI.
-- **Extensible Evaluator Architecture**: Pluggable `Evaluator` abstraction supporting `LlmEvaluator` (Gemini/OpenAI) and `RuleBasedEvaluator` / `MockEvaluator` for offline execution.
-- **Structured Explainable Feedback**: Detailed criteria breakdown scores (0-10), evidence-based feedback cards (Good, Suggestion, Concern), and thought-provoking follow-up design questions.
-- **Attempt History & Score Progression**: Track iterations, compare past scores, and retry problems to improve design quality.
-- **Duplicate Evaluation Protection & Retry**: Idempotent execution preventing duplicate AI calls and allowing one-click evaluation retries if service fails.
+## Run locally
 
----
+Requirements: Node.js 18 or newer and npm 10 or newer.
 
-## 🛠️ Technology Stack
-
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS
-- **Database**: SQLite via Prisma ORM
-- **Testing**: Vitest + Testing Library
-- **Validation**: Zod (for input & LLM JSON schema validation)
-- **Icons**: Lucide React
-
----
-
-## 💻 Getting Started
-
-### Prerequisites
-
-- Node.js `v18+` or `v20+`
-- npm `v10+`
-
-### 1. Clone & Install
-
-```bash
-git clone <repository-url>
-cd LLD-practice
+```powershell
 npm install
-```
-
-### 2. Configure Environment Variables
-
-Create `.env` file in the root directory (or copy `.env.example`):
-
-```bash
-DATABASE_URL="file:./dev.db"
-
-# Optional: Add Gemini or OpenAI key for live LLM evaluation
-# If omitted, the platform uses an intelligent RuleBasedEvaluator out of the box!
-# GEMINI_API_KEY="your_gemini_api_key"
-# OPENAI_API_KEY="your_openai_api_key"
-```
-
-### 3. Setup & Seed Database
-
-```bash
+Copy-Item .env.example .env
 npm run prisma:push
 npm run prisma:seed
-```
-
-### 4. Run Development Server
-
-```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open `http://localhost:3000`.
 
----
+The local `.env` can use:
 
-## 🧪 Running Tests & Build
+```env
+DATABASE_URL="file:./dev.db"
+```
 
-Run the Vitest unit test suite:
+LLM keys are optional. Without one, the rule-based evaluator is used. Keep provider keys server-side and never give them a `NEXT_PUBLIC_` prefix.
 
-```bash
+## Verify the project
+
+```powershell
 npm test
-```
-
-Run TypeScript build verification:
-
-```bash
 npm run build
+npx prisma validate
 ```
 
----
+## Database and deployment
 
-## 📌 Known Limitations & Scope Scoping
+SQLite is suitable for local development or a single server with a persistent disk. It is not suitable for an ephemeral or horizontally scaled serverless deployment because the database file is local to one process or machine.
 
-- **No Authentication**: The MVP does not require user accounts or login.
-- **No Code Execution**: Practice focuses on object-oriented domain modeling rather than executable code.
-- **No Graphical UML Canvas**: Focuses on text-based architectural representation to maximize reasoning speed.
-- **Single-Machine Monolith**: Intentionally built without microservices or distributed queues to keep architecture simple and maintainable.
+For a public deployment, use managed PostgreSQL. Change the provider in `prisma/schema.prisma` to `postgresql`, set the production `DATABASE_URL`, and create a migration during development:
+
+```powershell
+npx prisma migrate dev --name init
+```
+
+Commit the resulting `prisma/migrations` directory. In the deployment environment, run:
+
+```powershell
+npm install
+npm run prisma:migrate:deploy
+npm run prisma:seed
+npm run build
+npm start
+```
+
+For a database already created with `prisma db push`, take a backup and use `prisma migrate resolve --applied <migration-name>` only after confirming that its schema matches the migration. Do not use `prisma db push` as the normal production release step.
+
+A Vercel-style deployment needs managed PostgreSQL and server-side environment variables. A persistent VM can keep SQLite, but it needs disk backups, a restart policy, TLS through a reverse proxy, and a plan for updates.
+
+## Before a public launch
+
+The current MVP has no authentication, so attempts are not associated with user accounts. Add authentication and authorization if attempts contain private learner data.
+
+The rate limiter and LLM daily cap are in-memory and process-local. Replace them with Redis or provider-backed controls before relying on them for abuse prevention or billing protection.
+
+Submission currently starts evaluation in the application process. Use a durable queue and worker for a serverless deployment or any service where requests can be terminated after the response is returned.
+
+Also configure database backups, error tracking, structured logs, uptime checks, provider spending limits, and a health-check or smoke-test step in the deployment pipeline.
+
+## Project documents
+
+- `RESEARCH.txt` explains the learner problem and product direction.
+- `DESIGN.txt` explains the MVP architecture, user flow, domain classes, and trade-offs. Mermaid blocks can be rendered when converting it to PDF.
+- `AI_USAGE.md` records where AI assistance was used and which engineering decisions were accepted or rejected.
+
+## License
+
+This project is private unless a license is added by the project owner.

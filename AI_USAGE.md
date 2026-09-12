@@ -1,39 +1,48 @@
-# AI Usage & Engineering Decision Log
+# AI Usage Report
 
-This document details 4 key architectural and implementation decisions made during the development of the **LLD Practice Platform**, explaining what was proposed by AI, what was accepted vs rejected, and the underlying engineering rationale.
+## Purpose
 
----
+AI assistance was used as a development aid while building the LLD Practice Platform. The developer remained responsible for the product scope, architecture, implementation choices, review of generated suggestions, and verification through tests and a production build.
 
-## Decision 1: Deterministic Submission Validation vs. Full LLM Delegation
+## Where AI was used
 
-- **AI Proposal**: Use the LLM for all submission checks, including checking whether the user entered assumptions, classes, and explanations.
-- **Decision**: **REJECTED**.
-- **Rationale**: Basic input validation (field existence, minimum length, valid problem/attempt IDs) is deterministic and fast. Relying on an external LLM API for basic validation introduces latency, cost, and potential unreliability.
-- **Final Approach**: Implemented client-side and server-side deterministic validation (`TextSubmission.validate()`). Submissions with empty or trivial inputs are blocked immediately with clear error messages before any LLM API is called.
+AI was used for:
 
----
+- discussing the learner problem and possible MVP boundaries
+- comparing text submissions with graphical diagram editors
+- reviewing the application layering and evaluator abstraction
+- suggesting validation cases and edge cases around attempt state transitions
+- drafting and refining implementation code, tests, and deployment documentation
+- reviewing deployment risks around SQLite, serverless execution, rate limiting, and LLM cost controls
 
-## Decision 2: Asynchronous Monolithic State Machine vs. Distributed Queue (Kafka/BullMQ)
+AI was not used as an authority for the learner's design score. The application evaluates the learner's submission using the explicit rubric and returns evidence that can be inspected by the learner.
 
-- **AI Proposal**: Introduce Redis with BullMQ or Kafka to handle background evaluation jobs asynchronously.
-- **Decision**: **REJECTED**.
-- **Rationale**: For an MVP designed to showcase core LLD learning workflows, distributed messaging infrastructure adds unnecessary operational complexity (Redis containers, queue workers, network failure modes).
-- **Final Approach**: Maintained a simple monolithic architecture using Prisma state transitions (`DRAFT` ➔ `SUBMITTED` ➔ `EVALUATING` ➔ `COMPLETED` / `FAILED`). The API endpoint triggers background evaluation asynchronously while client polling updates the UI cleanly.
+## Decisions made with AI input
 
----
+### Deterministic validation stays outside the LLM
 
-## Decision 3: Canonical Reference Diagram Matching vs. Evidence-Based Evaluation
+An early suggestion was to ask the LLM whether required fields were present and meaningful. That was rejected. Required-field checks, length checks, identifier checks, and attempt-state checks are predictable application rules. Keeping them in the domain model makes requests faster, cheaper, and testable without a provider key.
 
-- **AI Proposal**: Grade submissions by comparing the user's class names against a pre-defined canonical class diagram for each problem.
-- **Decision**: **REJECTED**.
-- **Rationale**: LLD has multiple valid solutions. Demanding specific class names (e.g. requiring `PricingStrategy` over `FeeCalculator`) punishes valid software design choices and misleads learners into thinking design has a single correct answer.
-- **Final Approach**: Created a structured evaluation prompt instructing the LLM to evaluate 6 explicit design criteria (Requirement Understanding, Responsibility Allocation, Abstraction & Interfaces, Coupling & Cohesion, Extensibility, Explanation & Trade-offs) based on evidence extracted directly from the learner's text.
+### The evaluator is an interface
 
----
+The evaluator boundary was retained because the product needs both offline feedback and optional provider-backed reasoning. `RuleBasedEvaluator` supports local development and tests. `LlmEvaluator` handles provider calls and validates their JSON response. The use case depends on `Evaluator`, so changing provider does not require rewriting the attempt workflow.
 
-## Decision 4: Fallback Rule-Based Evaluator for Zero-Setup Offline Execution
+### Feedback is evidence-based
 
-- **AI Proposal**: Fail immediately or throw an error if no `OPENAI_API_KEY` or `GEMINI_API_KEY` is present in `.env`.
-- **Decision**: **ACCEPTED & EXTENDED**.
-- **Rationale**: Automated unit tests, CI pipelines, and local developer evaluations should run out of the box without requiring API keys or failing runtime builds.
-- **Final Approach**: Implemented `LlmEvaluator` with an automatic fallback to `RuleBasedEvaluator`. If no API key is set or if an API call fails, the platform seamlessly returns a structured evaluation so the application and tests never crash.
+Matching learner class names against a canonical answer was considered and rejected. A Parking Lot design using `FeeCalculator` can be as sound as one using `PricingStrategy`. The evaluator therefore scores requirement understanding, responsibility allocation, abstractions, coupling and cohesion, extensibility, and explanation based on evidence in the submitted text.
+
+### The first version remains a monolith
+
+Introducing Kafka, BullMQ, or several services during the MVP was considered and deferred. The main workflow is small, and a monolith makes it easier to inspect and change. This is a scope decision, not a claim that in-process work is sufficient for every production environment.
+
+### The rule-based fallback is intentional
+
+Failing when no API key is configured was considered and rejected. The fallback lets a developer run the project and its tests without paid external infrastructure. Provider failures also fall back to a structured local result, while production still needs provider monitoring and spending limits.
+
+## Verification
+
+The implementation was checked with the Vitest suite and the Next.js production build. Prisma schema validation and a fresh database migration were also run. The tests cover domain transitions, evaluator behaviour, validation, and security-related input cases.
+
+## Limitations and follow-up work
+
+The current in-memory rate limiter and daily evaluation counter do not coordinate across processes. Evaluation is started from the request process and is not a durable job. The MVP also has no authentication. These limitations are documented rather than hidden; they must be addressed before treating the application as a public multi-instance service.
